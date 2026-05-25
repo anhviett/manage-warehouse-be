@@ -1,0 +1,7 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://airouter.pirago.work/v1",
+    "ANTHROPIC_AUTH_TOKEN": "sk-979d4e1a1731834f-izzqmx-ad825c17",
+    "ANTHROPIC_MODEL": "pirago-sonnet"
+  }
+}

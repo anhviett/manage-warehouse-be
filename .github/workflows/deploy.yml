@@ -1,0 +1,50 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to VPS via SSH
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            echo "Pull latest code"
+            git fetch --all
+            git reset --hard origin/main
+
+            echo "Rebuild and restart containers"
+            docker compose down
+            docker compose up -d --build
+
+            echo "Run Django migrations"
+            docker compose exec -T backend python manage.py migrate --noinput
+
+            echo "Collect static files (optional if configured)"
+            docker compose exec -T backend python manage.py collectstatic --noinput || true
+
+            echo "Remove dangling images"
+            docker image prune -f
