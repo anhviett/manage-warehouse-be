@@ -20,7 +20,7 @@
 
     <div v-else class="inventory-qr-viewer__content">
       <el-empty
-        v-if="!qrImageSrc && !qrText"
+        v-if="!qrImageSrc && !qrLabel && !qrPayloadText"
         description="Chưa có dữ liệu QR"
       />
 
@@ -33,10 +33,16 @@
         />
 
         <el-input
-          v-if="qrText"
-          :model-value="qrText"
+          v-if="qrLabel"
+          :model-value="qrLabel"
+          readonly
+        />
+
+        <el-input
+          v-if="qrPayloadText"
+          :model-value="qrPayloadText"
           type="textarea"
-          :rows="4"
+          :rows="10"
           readonly
         />
       </div>
@@ -46,7 +52,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { getInventoryQr } from '@/services/inventories'
+import { getInventoryQr, type InventoryQrResponse } from '@/services/inventories'
 
 const props = defineProps<{
   inventoryId: number | string
@@ -55,27 +61,18 @@ const props = defineProps<{
 
 const loading = ref(false)
 const error = ref('')
-const qrResponse = ref<Record<string, unknown> | null>(null)
+const qrResponse = ref<InventoryQrResponse | null>(null)
 
 const qrImageSrc = computed(() => {
-  const candidates = [
-    qrResponse.value?.qr_image,
-    qrResponse.value?.qr_url,
-    qrResponse.value?.image,
-  ]
-
-  const imageValue = candidates.find((value) => typeof value === 'string' && value.length > 0)
-  return typeof imageValue === 'string' ? imageValue : ''
+  const imageBase64 = qrResponse.value?.image_base64
+  return imageBase64 ? `data:image/png;base64,${imageBase64}` : ''
 })
 
-const qrText = computed(() => {
-  const candidates = [
-    qrResponse.value?.qr_code,
-    qrResponse.value?.data,
-  ]
+const qrLabel = computed(() => qrResponse.value?.label ?? '')
 
-  const textValue = candidates.find((value) => typeof value === 'string' && value.length > 0)
-  return typeof textValue === 'string' ? textValue : ''
+const qrPayloadText = computed(() => {
+  const payload = qrResponse.value?.payload
+  return payload ? JSON.stringify(payload, null, 2) : ''
 })
 
 async function fetchQr() {

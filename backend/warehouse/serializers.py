@@ -1,4 +1,8 @@
+import logging
+
 from rest_framework import serializers
+
+logger = logging.getLogger(__name__)
 
 from .fields import (
     CategoryFields,
@@ -168,12 +172,27 @@ class ProductSerializer(serializers.ModelSerializer):
         ]
 
     def get_qr_payload(self, obj):
+        logger.warning(
+            "Product QR payload serializer=%s obj=%s product_id=%s sku=%s barcode=%s context=%s",
+            self.__class__.__name__,
+            obj.__class__.__name__,
+            obj.id,
+            obj.sku,
+            obj.barcode,
+            getattr(self, "context", {}),
+        )
         return {
             "type": "product",
             "product_id": obj.id,
             "sku": obj.sku,
             "name": obj.name,
             "barcode": obj.barcode,
+            "unit": obj.unit,
+            "category_name": obj.category.name if obj.category else None,
+            "supplier_code": obj.supplier.code if obj.supplier else None,
+            "track_batch": obj.track_batch,
+            "track_serial": obj.track_serial,
+            "is_active": obj.is_active,
         }
 
     def get_qr_label(self, obj):
@@ -238,13 +257,33 @@ class InventorySerializer(serializers.ModelSerializer):
         return obj.available_quantity <= obj.reorder_level
 
     def get_qr_payload(self, obj):
+        logger.warning(
+            "Inventory QR payload serializer=%s obj=%s inventory_id=%s warehouse_id=%s product_id=%s sku=%s context=%s",
+            self.__class__.__name__,
+            obj.__class__.__name__,
+            obj.id,
+            obj.warehouse_id,
+            obj.product_id,
+            obj.product.sku,
+            getattr(self, "context", {}),
+        )
         return {
             "type": "inventory",
             "inventory_id": obj.id,
             "warehouse_id": obj.warehouse_id,
             "warehouse_code": obj.warehouse.code,
+            "warehouse_name": obj.warehouse.name,
             "product_id": obj.product_id,
             "sku": obj.product.sku,
+            "product_name": obj.product.name,
+            "product_unit": obj.product.unit,
+            "quantity": obj.quantity,
+            "available_quantity": obj.available_quantity,
+            "reserved_quantity": obj.reserved_quantity,
+            "damaged_quantity": obj.damaged_quantity,
+            "reorder_level": obj.reorder_level,
+            "bin_location": obj.bin_location,
+            "is_below_reorder_level": obj.available_quantity <= obj.reorder_level,
         }
 
     def get_qr_label(self, obj):
@@ -722,10 +761,33 @@ class StockOperationSerializer(serializers.Serializer):
 
 
 class QRLookupSerializer(serializers.Serializer):
-    code = serializers.CharField(max_length=255)
+    code = serializers.CharField(max_length=2048)
 
 
 class QRCodeResponseSerializer(serializers.Serializer):
     label = serializers.CharField()
     payload = serializers.JSONField()
     image_base64 = serializers.CharField()
+
+
+class ForecastDemandQuerySerializer(serializers.Serializer):
+    product_id = serializers.IntegerField(min_value=1)
+    warehouse_id = serializers.IntegerField(min_value=1, required=False)
+    days = serializers.IntegerField(min_value=1, max_value=180, default=30)
+
+
+class SlottingItemRequestSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField(min_value=1)
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class SlottingOptimizationSerializer(serializers.Serializer):
+    shelf_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    items = SlottingItemRequestSerializer(many=True, allow_empty=False)
+
+
+class OperationsDashboardQuerySerializer(serializers.Serializer):
+    warehouse_id = serializers.IntegerField(min_value=1, required=False)

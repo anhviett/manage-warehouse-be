@@ -19,6 +19,9 @@ from .views import (
     SupplierViewSet,
     WarehouseViewSet,
     dashboard_summary,
+    forecast_demand,
+    operations_dashboard,
+    optimize_slotting,
     qr_lookup,
 )
 
@@ -42,6 +45,9 @@ router.register("stock-count-items", StockCountItemViewSet, basename="stock-coun
 
 urlpatterns = [
     path("dashboard/", dashboard_summary, name="dashboard-summary"),
+    path("ai/forecast-demand/", forecast_demand, name="forecast-demand"),
+    path("ai/slotting/optimize/", optimize_slotting, name="optimize-slotting"),
+    path("ai/operations/dashboard/", operations_dashboard, name="operations-dashboard"),
     path("qr/lookup/", qr_lookup, name="qr-lookup"),
     path("", include(router.urls)),
 ]

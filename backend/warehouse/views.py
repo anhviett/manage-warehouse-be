@@ -30,15 +30,18 @@ from .models import (
 )
 from .serializers import (
     CategorySerializer,
+    ForecastDemandQuerySerializer,
     GoodsIssueItemSerializer,
     GoodsIssueSerializer,
     GoodsReceiptItemSerializer,
     GoodsReceiptSerializer,
     InventorySerializer,
+    OperationsDashboardQuerySerializer,
     ProductBatchSerializer,
     ProductSerializer,
     QRLookupSerializer,
     SerialNumberSerializer,
+    SlottingOptimizationSerializer,
     StockCountItemSerializer,
     StockCountSerializer,
     StockMovementSerializer,
@@ -48,6 +51,9 @@ from .serializers import (
     SupplierSerializer,
     WarehouseSerializer,
 )
+from .services.forecasting import forecast_product_demand
+from .services.operations import build_operations_dashboard
+from .services.slotting import optimize_shelf_space
 
 
 def build_qr_image_base64(payload):
@@ -526,12 +532,117 @@ def dashboard_summary(request):
     )
 
 
+@api_view(["GET"])
+def forecast_demand(request):
+    serializer = ForecastDemandQuerySerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+
+    data = forecast_product_demand(
+        product_id=serializer.validated_data["product_id"],
+        periods=serializer.validated_data["days"],
+        warehouse_id=serializer.validated_data.get("warehouse_id"),
+    )
+    return Response(data)
+
+
+@api_view(["POST"])
+def optimize_slotting(request):
+    serializer = SlottingOptimizationSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    result = optimize_shelf_space(
+        shelf_ids=serializer.validated_data["shelf_ids"],
+        item_requests=serializer.validated_data["items"],
+    )
+    response_status = status.HTTP_200_OK
+    if result.get("status") == "error":
+        response_status = status.HTTP_400_BAD_REQUEST
+
+    return Response(result, status=response_status)
+
+
+@api_view(["GET"])
+def operations_dashboard(request):
+    serializer = OperationsDashboardQuerySerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+
+    data = build_operations_dashboard(
+        warehouse_id=serializer.validated_data.get("warehouse_id"),
+    )
+    return Response(data)
+
+
 @api_view(["POST"])
 def qr_lookup(request):
     serializer = QRLookupSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
     code = serializer.validated_data["code"].strip()
+
+    try:
+        payload = json.loads(code)
+    except json.JSONDecodeError:
+        payload = None
+
+    if isinstance(payload, dict):
+        qr_type = payload.get("type")
+
+        if qr_type == "product":
+            product = None
+            product_id = payload.get("product_id")
+            sku = payload.get("sku")
+
+            if product_id is not None:
+                product = Product.objects.filter(id=product_id).first()
+            if not product and sku:
+                product = Product.objects.filter(sku=sku).first()
+            if not product:
+                return Response({"detail": "Không tìm thấy sản phẩm từ QR code."}, status=404)
+
+            return Response(
+                {
+                    "type": "product",
+                    "data": ProductSerializer(product).data,
+                }
+            )
+
+        if qr_type == "inventory":
+            inventory = None
+            inventory_id = payload.get("inventory_id")
+            warehouse_id = payload.get("warehouse_id")
+            product_id = payload.get("product_id")
+            warehouse_code = payload.get("warehouse_code")
+            sku = payload.get("sku")
+
+            if inventory_id is not None:
+                inventory = (
+                    Inventory.objects.select_related("warehouse", "product")
+                    .filter(id=inventory_id)
+                    .first()
+                )
+            if not inventory and warehouse_id is not None and product_id is not None:
+                inventory = (
+                    Inventory.objects.select_related("warehouse", "product")
+                    .filter(warehouse_id=warehouse_id, product_id=product_id)
+                    .first()
+                )
+            if not inventory and warehouse_code and sku:
+                inventory = (
+                    Inventory.objects.select_related("warehouse", "product")
+                    .filter(warehouse__code=warehouse_code, product__sku=sku)
+                    .first()
+                )
+            if not inventory:
+                return Response({"detail": "Không tìm thấy tồn kho từ QR code."}, status=404)
+
+            return Response(
+                {
+                    "type": "inventory",
+                    "data": InventorySerializer(inventory).data,
+                }
+            )
+
+        return Response({"detail": "QR JSON không được hỗ trợ."}, status=400)
 
     if code.startswith("PRODUCT:"):
         sku = code.split(":", 1)[1]
@@ -569,7 +680,7 @@ def qr_lookup(request):
 
     return Response(
         {
-            "detail": "QR code không được hỗ trợ. Dùng PRODUCT:<SKU> hoặc INV:<WAREHOUSE_CODE>:<SKU>."
+            "detail": "QR code không được hỗ trợ. Dùng PRODUCT:<SKU>, INV:<WAREHOUSE_CODE>:<SKU> hoặc JSON payload."
         },
         status=400,
     )
